@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Nutrition & Weight Tracker</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+body{
+font-family:Arial;
+max-width:750px;
+margin:auto;
+padding:15px;
+}
+
+input,button{
+width:100%;
+padding:8px;
+margin:5px 0;
+}
+
+.card{
+border:1px solid #ddd;
+border-radius:8px;
+padding:12px;
+margin-top:15px;
+}
+
+.entry{
+border-bottom:1px solid #eee;
+padding:5px;
+}
+
+#searchResults{
+max-height:200px;
+overflow-y:auto;
+}
+
+#searchResults div{
+padding:6px;
+border-bottom:1px solid #eee;
+cursor:pointer;
+}
+
+#searchResults div:hover{
+background:#f3f3f3;
+}
+
+</style>
+</head>
+
+<body>
+
+<h1>🏃 Nutrition & Weight Tracker</h1>
+
+<div class="card">
+
+<h2>🎯 Goals</h2>
+
+<input id="goalWeight" type="number" placeholder="Target weight (kg)">
+<input id="calorieGoal" type="number" placeholder="Daily calorie goal">
+
+<button onclick="saveGoal()">Save Goal</button>
+
+<p id="goalDisplay"></p>
+<p id="streak"></p>
+
+</div>
+
+
+<div class="card">
+
+<h2>🍽 Log Food</h2>
+
+<input id="foodSearch" placeholder="Search food (NZ database)">
+<div id="searchResults"></div>
+
+<input id="food" placeholder="Food name">
+<input id="calories" type="number" placeholder="Calories">
+<input id="protein" type="number" placeholder="Protein (g)">
+<input id="carbs" type="number" placeholder="Carbs (g)">
+<input id="fat" type="number" placeholder="Fat (g)">
+
+<button onclick="addFood()">Add Food</button>
+
+<p id="dailyCalories"></p>
+
+</div>
+
+
+<div class="card">
+
+<h2>💪 Exercise</h2>
+
+<input id="exercise" placeholder="Exercise type">
+<input id="duration" type="number" placeholder="Minutes">
+
+<button onclick="addExercise()">Add Exercise</button>
+
+</div>
+
+
+<div class="card">
+
+<h2>👣 Steps</h2>
+
+<input id="steps" type="number" placeholder="Steps today">
+
+<button onclick="addSteps()">Add Steps</button>
+
+</div>
+
+
+<div class="card">
+
+<h2>⚖️ Weight</h2>
+
+<input id="weight" type="number" placeholder="Weight (kg)">
+
+<button onclick="addWeight()">Add Weight</button>
+
+</div>
+
+
+<div class="card">
+
+<h2>📈 Weight Progress</h2>
+
+<canvas id="weightChart"></canvas>
+
+</div>
+
+
+<div class="card">
+
+<h2>🥗 Macro Breakdown (Today)</h2>
+
+<canvas id="macroChart"></canvas>
+
+</div>
+
+
+<div class="card">
+
+<h2>📊 Entries</h2>
+
+<div id="log"></div>
+
+</div>
+
+
+
+<script>
+
+let data = JSON.parse(localStorage.getItem("trackerData")) || {
+log:[],
+goal:null,
+calorieGoal:null
+};
+
+
+function today(){
+return new Date().toLocaleDateString();
+}
+
+
+function save(){
+localStorage.setItem("trackerData",JSON.stringify(data));
+display();
+}
+
+
+function saveGoal(){
+
+data.goal=Number(document.getElementById("goalWeight").value);
+data.calorieGoal=Number(document.getElementById("calorieGoal").value);
+
+save();
+
+}
+
+
+function addFood(){
+
+const food=document.getElementById("food").value;
+const calories=Number(document.getElementById("calories").value);
+const protein=Number(document.getElementById("protein").value)||0;
+const carbs=Number(document.getElementById("carbs").value)||0;
+const fat=Number(document.getElementById("fat").value)||0;
+
+if(!food || !calories) return;
+
+data.log.push({
+type:"Food",
+food,
+calories,
+protein,
+carbs,
+fat,
+date:today()
+});
+
+document.getElementById("food").value="";
+document.getElementById("calories").value="";
+document.getElementById("protein").value="";
+document.getElementById("carbs").value="";
+document.getElementById("fat").value="";
+
+save();
+
+}
+
+
+function addExercise(){
+
+const exercise=document.getElementById("exercise").value;
+const duration=document.getElementById("duration").value;
+
+if(!exercise || !duration) return;
+
+data.log.push({
+type:"Exercise",
+exercise,
+duration,
+date:today()
+});
+
+document.getElementById("exercise").value="";
+document.getElementById("duration").value="";
+
+save();
+
+}
+
+
+function addSteps(){
+
+const steps=Number(document.getElementById("steps").value);
+
+if(!steps) return;
+
+data.log.push({
+type:"Steps",
+steps,
+date:today()
+});
+
+document.getElementById("steps").value="";
+
+save();
+
+}
+
+
+function addWeight(){
+
+const weight=Number(document.getElementById("weight").value);
+
+if(!weight) return;
+
+data.log.push({
+type:"Weight",
+weight,
+date:today()
+});
+
+document.getElementById("weight").value="";
+
+save();
+
+}
+
+
+
+/* IMPROVED FOOD SEARCH */
+
+async function searchFood(query){
+
+if(query.length<3){
+document.getElementById("searchResults").innerHTML="";
+return;
+}
+
+const url =
+"https://world.openfoodfacts.org/api/v2/search?" +
+"countries_tags=en:new-zealand&" +
+"fields=product_name,nutriments&" +
+"page_size=8&" +
+"search_terms=" + encodeURIComponent(query);
+
+try{
+
+const res=await fetch(url);
+const result=await res.json();
+
+const products=result.products;
+
+const container=document.getElementById("searchResults");
+
+container.innerHTML="";
+
+products.forEach(p=>{
+
+const name=p.product_name || "Unknown";
+
+const calories=p.nutriments?.energy_kcal_100g || "";
+const protein=p.nutriments?.proteins_100g || "";
+const carbs=p.nutriments?.carbohydrates_100g || "";
+const fat=p.nutriments?.fat_100g || "";
+
+const div=document.createElement("div");
+
+div.textContent=`${name} (${calories} kcal/100g)`;
+
+div.onclick=()=>{
+
+document.getElementById("food").value=name;
+document.getElementById("calories").value=calories;
+document.getElementById("protein").value=protein;
+document.getElementById("carbs").value=carbs;
+document.getElementById("fat").value=fat;
+
+container.innerHTML="";
+
+};
+
+container.appendChild(div);
+
+});
+
+}catch(e){
+
+console.log("Search failed",e);
+
+}
+
+}
+
+
+document.getElementById("foodSearch")
+.addEventListener("input",e=>{
+searchFood(e.target.value);
+});
+
+
+
+function calculateStreak(){
+
+let days=new Set();
+
+data.log.forEach(e=>days.add(e.date));
+
+let sorted=[...days].sort((a,b)=>new Date(b)-new Date(a));
+
+let streak=0;
+let date=new Date();
+
+for(let i=0;i<sorted.length;i++){
+
+let check=new Date(sorted[i]);
+
+if(check.toDateString()===date.toDateString()){
+
+streak++;
+
+date.setDate(date.getDate()-1);
+
+}else{
+break;
+}
+
+}
+
+return streak;
+
+}
+
+
+
+function display(){
+
+const logDiv=document.getElementById("log");
+logDiv.innerHTML="";
+
+let calories=0;
+let protein=0;
+let carbs=0;
+let fat=0;
+
+data.log.slice().reverse().forEach(e=>{
+
+const div=document.createElement("div");
+div.className="entry";
+
+if(e.type==="Food"){
+
+div.textContent=`🍽 ${e.food} - ${e.calories} cal`;
+
+if(e.date===today()){
+calories+=e.calories;
+protein+=e.protein;
+carbs+=e.carbs;
+fat+=e.fat;
+}
+
+}
+
+if(e.type==="Exercise"){
+div.textContent=`💪 ${e.exercise} ${e.duration} min`;
+}
+
+if(e.type==="Steps"){
+div.textContent=`👣 ${e.steps} steps`;
+}
+
+if(e.type==="Weight"){
+div.textContent=`⚖️ ${e.weight} kg`;
+}
+
+logDiv.appendChild(div);
+
+});
+
+
+document.getElementById("dailyCalories").textContent =
+"Today's Calories: " + calories;
+
+document.getElementById("streak").textContent =
+"🔥 Logging streak: " + calculateStreak() + " days";
+
+
+renderWeightChart();
+renderMacroChart(protein,carbs,fat);
+
+}
+
+
+
+function renderWeightChart(){
+
+const weights=data.log
+.filter(e=>e.type==="Weight")
+.sort((a,b)=>new Date(a.date)-new Date(b.date));
+
+const labels=weights.map(e=>e.date);
+const values=weights.map(e=>e.weight);
+
+const ctx=document.getElementById("weightChart");
+
+if(window.weightChart) window.weightChart.destroy();
+
+window.weightChart=new Chart(ctx,{
+type:"line",
+data:{
+labels,
+datasets:[{
+label:"Weight (kg)",
+data:values
+}]
+}
+});
+
+}
+
+
+function renderMacroChart(p,c,f){
+
+const ctx=document.getElementById("macroChart");
+
+if(window.macroChart) window.macroChart.destroy();
+
+window.macroChart=new Chart(ctx,{
+type:"doughnut",
+data:{
+labels:["Protein","Carbs","Fat"],
+datasets:[{
+data:[p,c,f]
+}]
+}
+});
+
+}
+
+
+display();
+
+</script>
+
+</body>
+</html>
